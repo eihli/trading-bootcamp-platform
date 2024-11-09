@@ -1,0 +1,33 @@
+[project]
+name = "trading-dashboard"
+version = "0.1.0"
+description = "Trading dashboard for market analysis"
+requires-python = ">=3.8"
+dependencies = [
+    "tomli>=2.0.1",            # TOML file parsing
+    "matplotlib>=3.7.1",       # For plotting and visualization
+    "requests>=2.31.0",        # HTTP requests
+    "rich>=13.3.5",           # Terminal UI
+    "websockets>=11.0.3",      # WebSocket client
+    "betterproto>=2.0.0b6",   # Protocol buffers
+    "ipywidgets>=8.0.6",      # Interactive widgets (for Jupyter)
+    "jupyter>=1.0.0",         # For notebook interface
+    "numpy>=1.24.3",          # Required by matplotlib and for calculations
+    "pandas>=2.0.2",          # Data manipulation
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.black]
+line-length = 88
+target-version = ["py38"]
+include = '\.pyi?$'
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
