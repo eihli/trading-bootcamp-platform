@@ -17,7 +17,6 @@ from market import (
 from mapping import market_by_name, bot_by_name, users_by_id
 from config import API_URL, JWT, ACT_AS, config
 
-
 def act_as(client: TradingClient, user_id: str):
     msg = ClientMessage(act_as=ActAs(user_id=user_id))
     response = client.request(msg)
@@ -37,6 +36,32 @@ def positions_by_user(client: TradingClient, market_name: str):
         positions[seller] -= trade.size
     return positions
 
+class Arbnone:
+    def __repr__(self):
+        return "None"
+    def __len__(self):
+        return 0
+    def __lt__(self, other):
+        return False
+    def __eq__(self, other):
+        return False
+    def __gt__(self, other):
+        return False
+    def __ge__(self, other):
+        return False
+    def __le__(self, other):
+        return False
+    def __neg__(self):
+        return self
+    def size(self):
+        return 0
+
+class Arbord:
+    def __init__(self, value: float):
+        self.value = value
+        self.price = value
+        self.size = None
+
 class Arbval:
     def __init__(self, value: float, side: Side):
         self.value = value
@@ -49,10 +74,14 @@ class Arbval:
         pass
     def bids(self):
         pass
+    def size(self):
+        return None
     def offers(self):
         pass
     def best_price(self):
-        return self.value
+        return Arbord(self.value)
+    def create_order(self, size: float):
+        pass
     def best_bid(self):
         pass
     def best_offer(self):
@@ -88,8 +117,17 @@ class Arbmark:
     
     def best_price(self):
         if self.side == Side.BID:
-            return self.best_bid().price
-        return -self.best_offer().price
+            best_bid = self.best_bid()
+            if best_bid:  
+                return best_bid
+        else:
+            best_offer = self.best_offer()
+            if best_offer:
+                return best_offer
+        return Arbnone()
+    
+    def size(self):
+        return self.best_price().size
     
     def best_bid(self):
         bids = self.bids()
@@ -106,9 +144,9 @@ class Arbmark:
     def create_order(self, size: float):
         return CreateOrder(
             market_id=self.market().id,
-            price=self.best_price(),
+            price=self.best_price().price,
             size=size,
-            side=self.side,
+            side=self.opposite_side,
         )
 
     def execute(self, size: float):
@@ -123,26 +161,62 @@ class Arbmark:
             self.client,
             f'{self.name}',
             self.opposite_side,
-            self.composition,
         )
 
 class Arbsket:
     def __init__(self, composition: List[Arbmark]):
         self.composition = composition
     
-    def cost(self):
-        return sum([arbmark.best_price() for arbmark in self.composition])
+    def best_price(self):
+        best_prices = [arbmark.best_price() for arbmark in self.composition]
+        if all(best_prices):
+            return sum(p.price for p in best_prices)
+        return Arbnone()
     
-    def value(self):
-        return sum([mark.value() for mark in self.composition])
+    def __neg__(self):
+        return Arbsket([-a for a in self.composition])
 
-class MockState:
-    def __init__(self, markets: Dict[str, Market]):
-        self.markets = markets
+from unittest.mock import Mock, MagicMock
+from dataclasses import dataclass, field
+from typing import Dict, List
 
-class MockClient:
-    def __init__(self, state: MockState):
-        self.state = state
+def create_mock_client(markets: Dict[int, Market] = None):
+    """Creates a mock TradingClient that returns specified markets in its state"""
+    mock_client = MagicMock()
+    
+    # Create mock state with markets dict
+    mock_state = MagicMock()
+    mock_state.markets = markets or {}
+    
+    # Make client.state() return our mock state
+    mock_client.state.return_value = mock_state
+    
+    return mock_client
+
+def test_mock_client():
+    # Create some test market data
+    test_market = Market(
+        id=42,
+        name="test_market",
+        description="A test market",
+        owner_id="test_owner",
+        transaction_id=1,
+        min_settlement=0.0,
+        max_settlement=100.0,
+        orders=[],
+        trades=[],
+        has_full_history=True
+    )
+    
+    # Create mock client with our test market
+    mock_client = create_mock_client({
+        42: test_market
+    })
+    
+    # Test that we can access the market through the mock client
+    assert mock_client.state().markets[42].name == "test_market"
+    assert mock_client.state().markets[42].id == 42
+
 def demo_arb(client: TradingClient):
     ricki_time = Arbmark(client, 'ricki_time', Side.OFFER)
     david_time = Arbmark(client, 'david_time', Side.OFFER)
@@ -235,6 +309,19 @@ def execute(client: TradingClient, orders: List[Order]):
             client.cancel_order(order.id)
     else:
         print(f"Can't buy a, b, c, and d for {sum(bid_prices)} and sell for {sum(offer_prices)}")
+
+def calculate_size(left: Arbsket, right: Arbsket):
+    # Can be simplified.
+    num = len([o for o in right.composition if not isinstance(o, Arbval)])
+    denom = len([o for o in left.composition if not isinstance(o, Arbval)])
+    desired_ratio = num / denom
+    min_left = min(o.size() if o.size() else 1e9 for o in left.composition)
+    min_right = min(o.size() if o.size() else 1e9 for o in right.composition)
+    available_ratio = min_right / min_left
+    ratio = min(desired_ratio * available_ratio, available_ratio)
+    result_left = round(min(min_left, ratio * min_left), 2)
+    result_right = round(min(min_right, desired_ratio**-1 * min_left), 2)
+    return result_left, result_right
 
 if __name__ == "__main__":
     client = TradingClient(API_URL, JWT, ACT_AS)

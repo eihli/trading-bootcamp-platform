@@ -599,9 +599,6 @@ class RequestFailed(Exception):
     pass
 
 
-
-
-
 # BEGIN USER CODE HERE:
 
 client = TradingClient(API_URL, JWT, ACT_AS)
