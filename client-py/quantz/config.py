@@ -9,6 +9,7 @@ def load_config() -> Dict[str, str]:
         with open('config.toml', 'rb') as f:
             config = tomli.load(f)
     except:
+        print("No config.toml found, using empty config")
         config = {}
     
     # Override with environment variables if they exist

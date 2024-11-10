@@ -3,3 +3,4 @@ node_modules
 *.stackdump
 *.log
 client-py/quantz/config.toml
+client-py/quantz/.ipynb_checkpoints/

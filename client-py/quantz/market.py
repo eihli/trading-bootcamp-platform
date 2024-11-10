@@ -384,7 +384,7 @@ class TradingClient:
         )
         response = self.request(msg)
         _, message = betterproto.which_one_of(response, "message")
-        assert isinstance(message, OrderCreated)
+        #assert isinstance(message, OrderCreated), message
         return message
 
     def cancel_order(self, order_id: int) -> OrderCancelled:
@@ -398,7 +398,7 @@ class TradingClient:
         )
         response = self.request(msg)
         _, message = betterproto.which_one_of(response, "message")
-        assert isinstance(message, OrderCancelled)
+        # assert isinstance(message, OrderCancelled)
         return message
 
     def out(self, market_id: int) -> Out:

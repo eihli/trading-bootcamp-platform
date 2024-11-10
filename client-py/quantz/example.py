@@ -1,5 +1,5 @@
 from collections import defaultdict
-from typing import List
+from typing import List, Union
 import betterproto
 from market import (
     ActAs,
@@ -9,11 +9,13 @@ from market import (
     Market, 
     Portfolio,
     State,
-    ClientMessage
+    ClientMessage,
+    CreateOrder,
+    Order,
 )
 from mapping import market_by_name, bot_by_name, users_by_id
 from config import API_URL, JWT, ACT_AS, config
-
+ 
 # If a "correlation" is defined as::
 # (market_a, market_b, 1.0)
 # Which means that as market_a goes up by 1, market_b goes up by 1.
@@ -25,6 +27,7 @@ from config import API_URL, JWT, ACT_AS, config
 # (ricki_time, david_time, 0.0)
 # (ricki_time, sum,   1.0)
 # (david_time, sum,   1.0)
+# (sum <david_time + ricki_time>, )
 # (ricki_time, diff,  1.0 + 30)
 # (david_time, diff, -1.0 + 30)
 #
@@ -51,9 +54,9 @@ from config import API_URL, JWT, ACT_AS, config
 # you have an arbitrage.
 
 class Var:
-    def __init__(self, client: TradingClient, markets: List[Market], side: Side):
+    def __init__(self, client: TradingClient, market: Market, side: Side):
         self.client = client
-        self._markets = markets
+        self._market = market
         self.side = side
     
     def __repr__(self):
@@ -95,6 +98,139 @@ class Var:
             self.side
         )
 
+# (ricki_time + david_time == sum)
+
+# (-ricki_time - david_time + 30 == diff)
+
+class ArbMarket:
+    def __init__(self, market: Market, side: Side):
+        self.market = market
+        self.side = side
+
+class ArbMagic:
+    def __init__(self, value: Union[float, ArbMarket], parents: List["ArbMagic"]):
+        self._value = value
+        self.parents = parents
+
+    def __add__(self, other: "ArbMagic"):
+        return ArbMagic(
+            self._value + other._value,
+            (self, other)
+        )
+    
+    def __sub__(self, other: "ArbMagic"):
+        ask = ArbMagic(self.market, Side.OFFER)
+        result = ArbMagic()
+        result._result = (self, other)
+
+    def __neg__(self):
+        if self.side == Side.BID:
+            return ArbMagic(self.market, Side.OFFER)
+        else:
+            return ArbMagic(self.market, Side.BID)
+    
+    def __eq__(self, other: "ArbMagic"):
+        result = ArbMagic(self.value - other.value, parents=(self, other))
+        return result
+    
+    @property
+    def value(self):
+        if isinstance(self._value, ArbMarket):
+            if self.side == Side.BID:   
+                return best_bid(self._value.market.orders).price
+            else:
+                return best_ask(self._value.market.orders).price
+        else:
+            return self._value
+    
+    def find_arbs(self):
+        pass
+
+def best_bid(orders: List[Order]):
+    return sorted(orders, key=lambda x: -x.price)[0]
+
+def best_ask(orders: List[Order]):
+    return sorted(orders, key=lambda x: x.price)[0]
+
+
+def run_bot():
+    # example of the arb between ricki_time offer + david_time offer > sum bid
+    state = client.state()
+    ricki_time_offers = [
+        order for order in state.markets['ricki_time'].orders 
+        if order.side == Side.OFFER
+    ]
+    best_ricki_time_offer = sorted(ricki_time_offers, key=lambda x: x.price)[0]
+    david_time_offers = [
+        order for order in state.markets['david_time'].orders 
+        if order.side == Side.OFFER
+    ]
+    best_david_time_offer = sorted(david_time_offers, key=lambda x: x.price)[0]
+    sum_bids = [
+        order for order in state.markets['sum'].orders 
+        if order.side == Side.BID
+    ]
+    best_sum_bid = sorted(sum_bids, key=lambda x: -x.price)[0]
+
+    if best_ricki_time_offer.price + best_david_time_offer.price < best_sum_bid.price:
+        execute(client, [best_ricki_time_offer, best_david_time_offer, best_sum_bid])
+
+
+def execute(client: TradingClient, orders: List[ClientMessage]):
+    for order in orders:
+        client.request(order)
+
+def create_orders_message(orders: List[Var]) -> List[ClientMessage]:
+    size = min(order.size for order in orders)
+    return [
+        ClientMessage(
+            create_order=CreateOrder(
+                market_id=order.market_id,
+                price=order.price,
+                size=size,
+                side=order.side,
+            ),
+        )
+        for order in orders
+    ]
+
+def test_arb():
+    ricki_time = Order(
+        id=5,
+        market_id=42,
+        owner_id="test",
+        transaction_id=1,
+        price=12,
+        size=1,
+        side=Side.OFFER,
+        sizes=[],
+    )
+    david_time = Order(
+        id=6,
+        market_id=43,
+        owner_id="test",
+        transaction_id=1,
+        price=20,
+        size=2,
+        side=Side.OFFER,
+        sizes=[],
+    )
+    sum = Order(
+        id=7,
+        market_id=44,
+        owner_id="test",
+        transaction_id=1,
+        price=33,
+        size=3,
+        side=Side.BID,
+        sizes=[],
+    )
+    if ricki_time.price + david_time.price < sum.price:
+        orders_to_execute = create_orders_message([ricki_time, david_time, sum])
+    assert orders_to_execute[0].create_order.price == ricki_time.price
+    assert orders_to_execute[0].create_order.price == 12
+
+
 class Basket:
     def __init__(self, client: TradingClient, vars: List[Var]):
         self.client = client
@@ -133,3 +269,4 @@ if __name__ == "__main__":
     state = client.state()
     message = act_as(client, config['accounts']['lok'])
     print(message)
+    test_arb()
